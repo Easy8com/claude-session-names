@@ -1,0 +1,15 @@
+{
+  "name": "claude-session-names",
+  "description": "Easy8's session-names plugin for Claude Code",
+  "owner": {
+    "name": "Easy8",
+    "url": "https://github.com/Easy8Com"
+  },
+  "plugins": [
+    {
+      "name": "session-names",
+      "source": "./",
+      "description": "Names sessions from the whole conversation and lists finished sessions by last completion, searchable and tagged by project"
+    }
+  ]
+}

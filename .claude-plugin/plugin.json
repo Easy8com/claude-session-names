@@ -1,0 +1,19 @@
+{
+  "name": "session-names",
+  "version": "0.1.0",
+  "description": "Names Claude Code sessions from the whole conversation and lists finished sessions by last completion, searchable and tagged by project",
+  "author": {
+    "name": "Easy8",
+    "url": "https://github.com/Easy8Com"
+  },
+  "homepage": "https://github.com/Easy8Com/claude-session-names",
+  "repository": "https://github.com/Easy8Com/claude-session-names",
+  "keywords": [
+    "sessions",
+    "resume",
+    "titles",
+    "search"
+  ],
+  "types": "./types/index.d.ts",
+  "license": "MIT"
+}
