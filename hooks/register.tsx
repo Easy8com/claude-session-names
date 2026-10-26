@@ -296,6 +296,77 @@ async function tagProjects($: EngineInterface, untagged: readonly string[]) {
   )
 }
 
+// `cs` starts Claude Code with /sessions and this variable naming an empty file: Enter writes
+// the chosen session there and quits, and `cs` resumes the session in the same terminal.
+async function pickFile($: EngineInterface): Promise<string | undefined> {
+  const pick = await $.env.get('SESSION_NAMES_PICK')
+
+  // A picker the person went on to work in is an ordinary session.
+  return pick && (await $.session.turns()) === 0 ? pick : undefined
+}
+
+function quit($: EngineInterface) {
+  // From a timer: a hook may not run another command while it holds the session.
+  $.clock.after(0, () => {
+    void $.command.run({ command: 'exit', args: '' }).catch(err => $.ui.log(`session-names: ${String(err)}`))
+  })
+}
+
+const CS_BEGIN = '# >>> session-names: cs >>>'
+const CS_END = '# <<< session-names: cs <<<'
+
+// Self-contained, so `cs` keeps working whatever version of the plugin is installed.
+// The picker runs in a folder of its own: Claude Code asks to trust a folder once, but the
+// home directory, where a new terminal starts, every time.
+const CS_FUNCTION = `${CS_BEGIN}
+# cs [search]: pick a Claude Code session and resume it in this terminal. Written by /install-cs.
+cs() {
+  local pick id dir picker="$HOME/.cache/claude-session-names/picker"
+  mkdir -p "$picker" && pick=$(mktemp "\${TMPDIR:-/tmp}/claude-cs.XXXXXX") || return
+  (cd "$picker" && SESSION_NAMES_PICK="$pick" claude "/sessions $*")
+  read -r id dir < "$pick"
+  rm -f "$pick"
+  [ -n "$id" ] || return 0
+  cd "$dir" && claude --resume "$id"
+}
+${CS_END}`
+
+// The file the person's shell reads when a terminal opens.
+async function shellRc($: EngineInterface): Promise<string | undefined> {
+  const home = (await $.env.get('HOME')) ?? ''
+  const shell = ((await $.env.get('SHELL')) ?? '').split('/').at(-1)
+  if (shell === 'zsh') return `${(await $.env.get('ZDOTDIR')) ?? home}/.zshrc`
+  if (shell !== 'bash') return undefined
+  // A terminal on macOS starts a login shell, which reads .bash_profile and not .bashrc.
+  const os = await $.process.run(['uname', '-s'], { timeoutMs: 5000 })
+
+  return `${home}/${os.stdout.trim() === 'Darwin' ? '.bash_profile' : '.bashrc'}`
+}
+
+function withoutCs(text: string) {
+  const start = text.indexOf(CS_BEGIN)
+  const end = text.indexOf(CS_END, start)
+  if (start < 0 || end < 0) return text
+
+  return text.slice(0, start).replace(/\n+$/, '\n') + text.slice(end + CS_END.length).replace(/^\n+/, '')
+}
+
+async function installCs($: EngineInterface, isRemoval: boolean): Promise<string> {
+  const rc = await shellRc($)
+  if (!rc) return `cs works in bash and zsh; your shell is ${(await $.env.get('SHELL')) ?? 'unknown'}.`
+  const old = (await $.fs.exists(rc)) ? await $.fs.read(rc) : ''
+  const kept = withoutCs(old)
+  if (isRemoval) {
+    if (kept === old) return `cs is not in ${rc}.`
+    await $.fs.write(rc, kept)
+    return `cs removed from ${rc}. Terminals already open keep it until they close.`
+  }
+  const base = kept.replace(/\n+$/, '')
+  await $.fs.write(rc, `${base ? `${base}\n\n` : ''}${CS_FUNCTION}\n`)
+
+  return `cs installed in ${rc}. Open a new terminal (or run: source ${rc}) and type cs.`
+}
+
 async function openOverview($: EngineInterface, initial: string) {
   await update($, query, () => initial)
   await update($, status, () => 'Loading sessions…')
@@ -326,6 +397,11 @@ export const register: Register = on => {
       name: 'autoname',
       description: 'Name this session from the conversation (now | off | on)',
       argumentHint: 'now | off | on',
+    })
+    await $.command.register({
+      name: 'install-cs',
+      description: 'Add the cs shell command: pick a session in a terminal and resume it there',
+      argumentHint: '[remove]',
     })
 
     return next(e)
@@ -374,6 +450,18 @@ export const register: Register = on => {
     return { text: 'Sessions pane opened.' }
   })
 
+  on('command.run', { command: 'install-cs' }, async ($, e) => ({
+    text: await installCs($, e.args.trim() === 'remove'),
+  }))
+
+  // Esc in the picker cancels it: back to the shell, nothing to resume.
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    const done = await next(e)
+    if (e.origin.kind === 'person' && (await pickFile($))) quit($)
+
+    return done
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const table = $.ui.resolve(e)
     const { Box, Text, Button } = table
@@ -385,8 +473,14 @@ export const register: Register = on => {
     const room = Math.max(3, (e.viewport?.rows ?? 30) - 6)
     const width = e.props.bodyColumns
     const tagWidth = Math.max(1, ...found.slice(0, room).map(r => r.tag.length))
+    const pick = await pickFile($)
 
     const resume = async (row: SessionRow) => {
+      if (pick) {
+        await $.fs.write(pick, `${row.id} ${row.cwd}\n`)
+        quit($)
+        return
+      }
       const cmd = `cd '${row.cwd}' && claude --resume ${row.id}`
       const copied = await $.ui.copy({ text: cmd, surface: e.surface })
       $.ui.toast(copied.isCopied ? `Copied: ${cmd}` : cmd)
@@ -408,7 +502,8 @@ export const register: Register = on => {
           q && <Text>Search: {q}</Text>
         )}
         <Text dimColor>
-          {note || `${found.length} of ${list.length} sessions · Enter copies the resume command · Esc closes`}
+          {note ||
+            `${found.length} of ${list.length} sessions · ${pick ? 'Enter resumes it here · Esc cancels' : 'Enter copies the resume command · Esc closes'}`}
         </Text>
         {found.slice(0, room).map(row => (
           <Button key={row.id} plain onPress={() => void resume(row)}>

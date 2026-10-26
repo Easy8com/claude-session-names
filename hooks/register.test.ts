@@ -170,3 +170,105 @@ test('projects without a tag get one from the model, kept for later', async ($, 
   await clock.advance(1)
   expect(asked).toBe(1)
 })
+
+const OS = (stdout: string) => ({
+  value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+})
+
+test('started by cs, Enter hands the session to the shell and quits', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on)
+  mock.env(on, { HOME: '/home/t', SESSION_NAMES_PICK: '/tmp/claude-cs.abc' })
+  on('session.turns', () => ({ value: 0 }))
+  on('process.run', () => OS(JSON.stringify(SCANNED)))
+  on('ui.open', () => ({ value: { isPlaced: true as const } }))
+  on('fs.exists', () => ({ value: false }))
+  const written: string[][] = []
+  on('fs.write', ($, e) => {
+    written.push([e.path, e.text])
+    return { value: undefined }
+  })
+  const ran: string[] = []
+  on('command.run', { command: 'exit' }, ($, e) => {
+    ran.push(e.command)
+    return { text: '' }
+  })
+
+  await $.command.run({
+    command: 'sessions',
+    args: '',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  const ui = await $.ui.mount({
+    plugin: 'session-names',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'sessions',
+    props: PANE_PROPS,
+  })
+  expect(await ui.find({ type: 'Text', text: /Enter resumes it here/ })).toBeDefined()
+
+  await $.ui.press({ plugin: 'session-names', key: 'older' })
+  await clock.advance(1)
+  expect(written).toEqual([['/tmp/claude-cs.abc', 'older /home/t/code/_workspaces/backend/backend-42-login\n']])
+  expect(ran).toEqual(['exit'])
+  await ui.unmount()
+})
+
+test('/install-cs adds cs to the shell startup file once and removes it again', async ($, on) => {
+  mock.env(on, { HOME: '/home/t', SHELL: '/usr/bin/bash' })
+  on('process.run', () => OS('Linux\n'))
+  let rc = 'alias ll="ls -l"\n'
+  on('fs.exists', () => ({ value: true }))
+  on('fs.read', () => ({ value: rc }))
+  on('fs.write', ($, e) => {
+    expect(e.path).toBe('/home/t/.bashrc')
+    rc = e.text
+    return { value: undefined }
+  })
+  const run = (args: string) =>
+    $.command.run({
+      command: 'install-cs',
+      args,
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: true, columns: 160 },
+    })
+
+  expect((await run('')).text).toContain('cs installed in /home/t/.bashrc')
+  expect(rc.startsWith('alias ll="ls -l"\n\n# >>> session-names: cs >>>\n')).toBe(true)
+  expect(rc).toContain('\ncs() {\n')
+  expect(rc.endsWith('# <<< session-names: cs <<<\n')).toBe(true)
+
+  // Installing again replaces the block instead of adding a second one.
+  const once = rc
+  await run('')
+  expect(rc).toBe(once)
+
+  expect((await run('remove')).text).toContain('cs removed from /home/t/.bashrc')
+  expect(rc).toBe('alias ll="ls -l"\n')
+})
+
+test('/install-cs picks .bash_profile on macOS and .zshrc for zsh', async ($, on) => {
+  const env: Record<string, string> = { HOME: '/Users/t', SHELL: '/bin/bash' }
+  on('env.get', ($, e) => ({ value: env[e.name] }))
+  on('process.run', () => OS('Darwin\n'))
+  on('fs.exists', () => ({ value: false }))
+  const paths: string[] = []
+  on('fs.write', ($, e) => {
+    paths.push(e.path)
+    return { value: undefined }
+  })
+  const run = () =>
+    $.command.run({
+      command: 'install-cs',
+      args: '',
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: true, columns: 160 },
+    })
+
+  await run()
+  env.SHELL = '/bin/zsh'
+  await run()
+  expect(paths).toEqual(['/Users/t/.bash_profile', '/Users/t/.zshrc'])
+})
