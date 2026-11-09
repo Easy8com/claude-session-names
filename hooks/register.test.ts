@@ -73,6 +73,14 @@ test('the overview lists sessions newest first and searches without diacritics',
     expect(await ui.find({ key: 'older' })).toBeDefined()
     expect(await ui.find({ key: 'newer' })).toBeUndefined()
 
+    // A tag typed as the list shows it, in any case, picks that project's sessions.
+    await ui.input({ key: 'q', text: '[shop]', kind: 'change' })
+    expect(await ui.find({ key: 'newer' })).toBeDefined()
+    expect(await ui.find({ key: 'older' })).toBeUndefined()
+    await ui.input({ key: 'q', text: '[Back', kind: 'change' })
+    expect(await ui.find({ key: 'older' })).toBeDefined()
+    expect(await ui.find({ key: 'newer' })).toBeUndefined()
+
     await ui.input({ key: 'q', text: '', kind: 'change' })
     await ui.unmount()
   }
