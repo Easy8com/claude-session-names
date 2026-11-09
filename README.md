@@ -53,7 +53,7 @@ Requirements: Claude Code with function-hook plugins (2.1.300 or newer) and `pyt
 
 ### The overview pane
 
-- Type to search. Every word has to match somewhere in the title, the summary, the project tag, the path, the first or last prompt, or the session id. Diacritics are ignored (`skoleni` finds `Školení`).
+- Type to search. Every word has to match somewhere in the title, the summary, the project tag, the path, the first or last prompt, or the session id. Case and diacritics are ignored (`skoleni` finds `Školení`). Type a tag the way the list shows it to see one project only: `[api]` finds the `[API]` sessions and not `[API2]`.
 - Sessions are sorted by their last completed turn, newest first.
 - Down moves from the search field to the list. Enter on a row copies `cd '<dir>' && claude --resume <id>` to the clipboard. `<dir>` is the directory the session's transcript is kept under, so the resume works for worktree sessions too. Opened by `cs`, Enter resumes the session instead.
 - Esc closes the pane.
@@ -73,6 +73,7 @@ It adds a short `cs` function to your shell's startup file: `~/.bashrc` for bash
 ```
 cs           # every session
 cs login     # the overview with "login" already searched
+cs '[api]'   # one project's sessions; quote it, the shell reads [...] as a file pattern
 ```
 
 - Type to search, Down to the list, Enter on a session resumes it. Esc cancels and leaves you in the shell.

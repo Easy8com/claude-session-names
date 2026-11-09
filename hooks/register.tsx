@@ -271,9 +271,11 @@ async function loadRows($: EngineInterface): Promise<{ list: SessionRow[]; untag
 const fold = (text: string) =>
   text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-// Every word of the query has to occur somewhere in the row.
+// Every word of the query has to occur somewhere in the row. The tag goes in as the list
+// shows it, so `[dev]` finds the DEV project only and `dev` still matches it too.
 function matches(row: SessionRow, words: readonly string[]) {
-  const hay = fold([row.title, row.tag, row.summary, row.cwd, row.firstPrompt, row.lastPrompt, row.id].join(' '))
+  const tag = `[${row.tag}]`
+  const hay = fold([row.title, tag, row.summary, row.cwd, row.firstPrompt, row.lastPrompt, row.id].join(' '))
 
   return words.every(w => hay.includes(w))
 }
